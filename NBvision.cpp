@@ -10,7 +10,7 @@ LPCTSTR mutex_name = TEXT("io.github.USN484259@NBvision");
 
 
 typedef LRESULT(CALLBACK *dll_cbt_proc)(int, WPARAM, LPARAM);
-typedef USNLIB::shared_stream_base* (*dll_setup)(const char*);
+typedef USNLIB::shared_stream_base* (*dll_setup)(const char*,size_t);
 
 
 
@@ -64,7 +64,9 @@ int WinMain(
 		else
 			break;
 
-		auto stream = setup("");
+
+		static const string script("local function fun(wnd,op)\nprint(NBvision.pid,NBvision.process,wnd,op)\nreturn true\nend\nreturn fun\n");
+		auto stream = setup(script.c_str(),script.size());
 
 
 		hook = SetWindowsHookExA(WH_CBT, cbt_proc, dll, 0);
@@ -75,27 +77,27 @@ int WinMain(
 		if (thread_handle == NULL)
 			break;
 
+		DWORD timeout = 0;
 		do {
-			DWORD res = WaitForSingleObject(thread_handle, 1000);
+			DWORD res = WaitForSingleObject(thread_handle, timeout);
 
 			char buffer[0x400];
+			timeout = min(2 * max(timeout, 1),1000);
 			do {
 				size_t len = stream->read(buffer,0x400);
 				if (!len)
 					break;
 				assert(log_file.good());
 				log_file.write(buffer, len);
-
+				timeout = 0;
 			} while (true);
-
-			log_file.flush();
 
 			if (res != WAIT_TIMEOUT)
 				break;
 
 		} while (true);
 
-
+		log_file.flush();
 
 	} while (false);
 	
