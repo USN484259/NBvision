@@ -782,6 +782,7 @@
 ** without modifying the main part of the file.
 */
 
+
 extern void stream_write(const char*);
 extern void stream_flush(void);
 
