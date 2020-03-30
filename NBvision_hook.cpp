@@ -7,9 +7,12 @@
 
 #include "lua.h"
 #include "lualib.h"
-#pragma comment(lib,"lua_vm.lib")
 
-
+#ifdef WIN64
+#pragma comment(lib,"lua_vm_64.lib")
+#else
+#pragma comment(lib,"lua_vm_32.lib")
+#endif
 
 
 #pragma section(".shared",read,write,shared)
@@ -45,6 +48,19 @@ extern void stream_flush(void) {
 	lua_stream.count = 0;
 }
 
+extern size_t rng(void) {
+	static size_t res = 0xCCCCCCCCCCCCCCCC;
+	size_t cur;
+#ifdef WIN64
+	if (_rdrand64_step(&cur))
+#else
+	if (_rdrand32_step(&cur))
+#endif
+		res = cur;
+	else
+		cur = res;
+	return cur ^ __rdtsc();
+}
 
 class lua_vm {
 	HANDLE heap;
@@ -191,9 +207,20 @@ class lua_vm {
 		return 1;
 	}
 
+	void ltab_set_constant(void) {
+		static const char* constant_name[] = { "HCBT_MOVESIZE","HCBT_MINMAX","HCBT_QS","HCBT_CREATEWND","HCBT_DESTROYWND","HCBT_ACTIVATE","HCBT_CLICKSKIPPED","HCBT_KEYSKIPPED","HCBT_SYSCOMMAND","HCBT_SETFOCUS" };
+		for (auto index = 0; index < 10; ++index) {
+			lua_pushstring(ls, constant_name[index]);
+			lua_pushinteger(ls, index);
+			lua_settable(ls, -3);
+		}
+	}
+
 	void open_lib_NBvision(void) {
-		lua_createtable(ls, 0, 6);
+		lua_createtable(ls, 0, 10 + 6);
 		
+		ltab_set_constant();
+
 		lua_pushstring(ls, "pid");
 		lua_pushinteger(ls, pid);
 		lua_settable(ls, -3);
@@ -318,8 +345,13 @@ public:
 			if (info->lpcs->lpszClass) {
 				if (info->lpcs->lpszClass > (void*)0xFFFF)
 					lua_pushstring(ls, info->lpcs->lpszClass);
-				else
-					lua_pushinteger(ls, (ATOM)info->lpcs->lpszClass);
+				else {
+					char buffer[0x400];
+					if (0 == GetAtomNameA((ATOM)info->lpcs->lpszClass, buffer, 0x400))
+						lua_pushnil(ls);
+					else
+						lua_pushstring(ls, buffer);
+				}
 			}
 			else
 				lua_pushnil(ls);
@@ -410,14 +442,13 @@ public:
 
 extern "C" __declspec(dllexport)
 USNLIB::shared_stream_base* setup(const void* str,size_t len) {
-	
+	if (len > sizeof(script))
+		return nullptr;
 	script_length = min(len, sizeof(script));
 	memcpy(script, str, script_length);
 
 	return &stream;
 }
-
-
 
 
 
