@@ -1,4 +1,6 @@
+#ifdef WIN64
 #include "ui.hpp"
+#endif
 #include <Windows.h>
 #include <stdexcept>
 #include <fstream>
@@ -16,10 +18,9 @@ LPCTSTR dll_name = TEXT("NBvision_hook_32.dll");
 #endif
 
 typedef LRESULT(CALLBACK *dll_cbt_proc)(int, WPARAM, LPARAM);
-typedef USNLIB::shared_stream_base* (*dll_setup)(const char*,size_t);
+typedef shared_stream* (*dll_setup)(const char*,size_t);
 
-
-
+#ifdef WIN64
 DWORD CALLBACK thread_ui(PVOID) {
 	DWORD res = 0;
 	try {
@@ -32,6 +33,7 @@ DWORD CALLBACK thread_ui(PVOID) {
 
 	return res;
 }
+#endif
 
 int WINAPI WinMain(
 	HINSTANCE,
@@ -43,7 +45,7 @@ int WINAPI WinMain(
 	HANDLE file_mapping = NULL;
 	PVOID map_view = nullptr;
 	HANDLE pear_proc = NULL;
-	USNLIB::shared_stream_base* pear_stream = nullptr;
+	shared_stream* pear_stream = nullptr;
 	HMODULE dll = NULL;
 	HHOOK hook = NULL;
 #ifdef WIN64
@@ -85,7 +87,7 @@ int WINAPI WinMain(
 #ifdef _DEBUG
 		WaitForSingleObject(hMutex, INFINITE);
 #endif
-
+		MessageBoxA(NULL, GetCommandLineA(), "NBvision_32", MB_OK);
 		{	//get HANDLEs from cmdline
 			DWORD tmp;
 			file_mapping = (HANDLE)strtoull(lpCmdLine, &lpCmdLine, 16);
@@ -110,7 +112,7 @@ int WINAPI WinMain(
 		if (!map_view)
 			break;
 
-		pear_stream = new(map_view) USNLIB::shared_stream<4000>();
+		pear_stream = new(map_view) shared_stream();
 
 
 		dll = LoadLibraryEx(dll_name, NULL, LOAD_LIBRARY_SEARCH_APPLICATION_DIR);
@@ -125,7 +127,7 @@ int WINAPI WinMain(
 		else
 			break;
 
-		USNLIB::shared_stream_base* stream = nullptr;
+		shared_stream* stream = nullptr;
 		{
 			ifstream script_file(lpCmdLine);
 			stringstream script_stream;
@@ -166,12 +168,13 @@ int WINAPI WinMain(
 
 			CloseHandle(ps.hThread);
 			pear_proc = ps.hProcess;
-		}
 
 #ifdef _DEBUG
-		MessageBox(NULL, NULL, TEXT("NBvision"), MB_OK);
-		ReleaseMutex(hMutex);
+			MessageBoxA(NULL, str.c_str(), "NBvision_64", MB_OK);
+			ReleaseMutex(hMutex);
 #endif
+		}
+
 
 		thread_handle = CreateThread(NULL, 0, thread_ui, NULL, 0, NULL);
 		if (thread_handle == NULL)
@@ -228,7 +231,7 @@ int WINAPI WinMain(
 	if (dll)
 		FreeLibrary(dll);
 	if (pear_stream)
-		pear_stream->~shared_stream_base();
+		pear_stream->~shared_stream();
 	if (pear_proc)
 		CloseHandle(pear_proc);
 	if (map_view)

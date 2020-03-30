@@ -14,11 +14,12 @@
 #pragma comment(lib,"lua_vm_32.lib")
 #endif
 
+#define EXPORT comment(linker,"/export:" __FUNCTION__ "=" __FUNCDNAME__)
 
 #pragma section(".shared",read,write,shared)
 
 __declspec(allocate(".shared"))
-USNLIB::shared_stream<0x0800> stream;
+shared_stream stream;
 
 __declspec(allocate(".shared"))
 size_t script_length;
@@ -112,6 +113,27 @@ class lua_vm {
 		return res;
 	}
 
+	static int lfunc_hwnd_tostring(lua_State* ls) {
+		if (!lua_islightuserdata(ls, -1)) {
+			lua_pushstring(ls, "lfunc_wnd_class expect HWND");
+			lua_error(ls);
+		}
+		HWND hwnd = (HWND)lua_touserdata(ls, -1);
+		char buffer[0x20];
+		snprintf(buffer, 0x20, "%x", hwnd);
+		lua_pushstring(ls, buffer);
+		return 1;
+	}
+
+	static void ltab_push_hwnd(lua_State* ls, HWND hwnd) {
+		lua_pushlightuserdata(ls, hwnd);
+		lua_createtable(ls, 0, 1);
+		lua_pushstring(ls, "__tostring");
+		lua_pushcfunction(ls, lfunc_hwnd_tostring);
+		lua_settable(ls, -3);
+		lua_setmetatable(ls, -2);
+	}
+
 	static int lfunc_wnd_class(lua_State* ls) {
 		if (!lua_islightuserdata(ls, -1)) {
 			lua_pushstring(ls, "lfunc_wnd_class expect HWND");
@@ -173,6 +195,14 @@ class lua_vm {
 		return ret;
 	}
 
+	static int lfunc_terminate(lua_State* ls) {
+		int code = 0xCDCDCDCD;
+		if (lua_isnumber(ls, -1))
+			code = lua_tonumber(ls, -1);
+		TerminateProcess(GetCurrentProcess, code);
+		return 0;
+	}
+
 	static void ltab_make_rect(lua_State* ls,const RECT* rect) {
 		lua_createtable(ls, 0, 4);
 
@@ -217,7 +247,7 @@ class lua_vm {
 	}
 
 	void open_lib_NBvision(void) {
-		lua_createtable(ls, 0, 10 + 6);
+		lua_createtable(ls, 0, 10 + 7);
 		
 		ltab_set_constant();
 
@@ -247,6 +277,10 @@ class lua_vm {
 
 		lua_pushstring(ls, "wnd_rect");
 		lua_pushcfunction(ls, lfunc_wnd_rect);
+		lua_settable(ls, -3);
+
+		lua_pushstring(ls, "terminate");
+		lua_pushcfunction(ls,lfunc_terminate);
 		lua_settable(ls, -3);
 
 		lua_setglobal(ls, "NBvision");
@@ -317,13 +351,18 @@ public:
 		return LUA_OK;
 	}
 
-	bool call(HWND hwnd, int op,void* lparam) {
+	bool call(HWND hwnd, int op,LPARAM lparam) {
 		if (!ls) {
 			report("corrupted lvm");
 			return true;
 		}
+
+		while (!lua_isfunction(ls, -1))
+			lua_pop(ls, 1);
+
 		lua_pushvalue(ls, -1);
-		lua_pushlightuserdata(ls, hwnd);
+		//lua_pushlightuserdata(ls, hwnd);
+		ltab_push_hwnd(ls, hwnd);
 		lua_pushinteger(ls, op);
 
 		switch (op) {
@@ -440,8 +479,8 @@ public:
 
 
 
-extern "C" __declspec(dllexport)
-USNLIB::shared_stream_base* setup(const void* str,size_t len) {
+shared_stream* setup(const void* str,size_t len) {
+#pragma EXPORT
 	if (len > sizeof(script))
 		return nullptr;
 	script_length = min(len, sizeof(script));
@@ -452,9 +491,8 @@ USNLIB::shared_stream_base* setup(const void* str,size_t len) {
 
 
 
-
-extern "C" __declspec(dllexport)
 LRESULT CALLBACK cbt_hook_proc(int nCode, WPARAM wparam, LPARAM lparam) {
+#pragma EXPORT
 	static std::mutex sync;
 
 	std::lock_guard<std::mutex> lock(sync);
@@ -469,7 +507,7 @@ LRESULT CALLBACK cbt_hook_proc(int nCode, WPARAM wparam, LPARAM lparam) {
 
 
 	try {
-		if (status && false == lvm.call((HWND)wparam, nCode, (void*)lparam))
+		if (status && false == lvm.call((HWND)wparam, nCode, lparam))
 			return -1;
 	}
 	catch (std::exception& e) {
